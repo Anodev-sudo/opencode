@@ -257,9 +257,26 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+      // Check if the last assistant message has any tool calls
+      // Some models (like Kimi/Moonshot) incorrectly send finish_reason: "stop" even after making tool calls
+      // We should only exit if there are no pending tool results that need a response
+      const lastAssistantMsg = msgs.find((m) => m.info.id === lastAssistant?.id)
+      const hasCompletedToolCalls = lastAssistantMsg?.parts.some(
+        (p) => p.type === "tool" && (p.state.status === "completed" || p.state.status === "error")
+      )
+
       if (lastAssistant?.finish && lastAssistant.finish !== "tool-calls" && lastUser.id < lastAssistant.id) {
-        log.info("exiting loop", { sessionID })
-        break
+        // Don't exit if there are completed tool calls that need a response
+        if (hasCompletedToolCalls) {
+          log.info("continuing loop despite finish reason due to completed tool calls", {
+            sessionID,
+            finishReason: lastAssistant.finish
+          })
+        } else {
+          log.info("exiting loop", { sessionID })
+          break
+        }
       }
 
       step++
